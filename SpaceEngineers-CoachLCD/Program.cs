@@ -120,11 +120,12 @@ namespace IngameScript
         string ExecuteCommand(string command, string[] arguments, TextSurfacePair textSurface)
         {
             string firstArg = arguments.Length > 0 ? arguments[0] : "";
+            int screenWidth = this.ScreenWidth(textSurface);
             switch (command)
             {
                 // Settings
                 case "Color":
-                    if (arguments.Length != 3) return "Color: Expected arguments: \"<red>\" \"<green>\" \"<blue>\"";
+                    if (arguments.Length != 3) return "Color: Expected args: \"<red>\" \"<green>\" \"<blue>\"";
                     try
                     {
                         textSurface.surface.FontColor = new Color(int.Parse(arguments[0]), int.Parse(arguments[1]), int.Parse(arguments[2]));
@@ -133,15 +134,29 @@ namespace IngameScript
                         return "Error: Unable to parse arguments. Make sure they are integers";
                     }
                     return "";
+                case "FontSize":
+                    if (arguments.Length != 1) return "FontSize: Expected args: \"<font size>\"";
+                    try
+                    {
+                        textSurface.surface.FontSize = float.Parse(firstArg);
+                    }catch(Exception e)
+                    {
+                        return "Error: Unable to parse argument. Make sure it is a number";
+                    }
+                    return "";
 
                 // Text rendering
+                case "HLine":
+                    return this.GenerateString('─', screenWidth);
                 case "Echo":
                     return firstArg;
                 case "Center":
-                    return firstArg;
+                    return this.TextLayoutCenter(firstArg, textSurface);
                 case "TwoCol":
-                    if (arguments.Length != 2) return "TwoCol: Expected arguments: \"<left>\" \"<right>\"";
+                    if (arguments.Length != 2) return "TwoCol: Expected args: \"<left>\" \"<right>\"";
                     return this.TextLayoutTwoColumns(arguments, textSurface);
+
+                // Property displays
                 case "PropBool":
                     if (arguments.Length == 5)
                     {
@@ -164,24 +179,66 @@ namespace IngameScript
 
                     }
                 case "Connected":
-                    if (arguments.Length == 5)
+                    if (arguments.Length != 5) return "Connected: Expected args: \"<block>\" \"<text>\" \"<true text>\" \"<false text>\" \"<error text>\"";
+                    try
                     {
-                        try
-                        {
-                            IMyShipConnector connector = GridTerminalSystem.GetBlockWithName(arguments[0]) as IMyShipConnector;
-                            bool connected = connector.Status == MyShipConnectorStatus.Connected;
-                            string[] data = { arguments[1], (connected ? arguments[2] : arguments[3]) };
-                            return this.TextLayoutTwoColumns(data, textSurface);
-                        }
-                        catch(Exception e)
-                        {
-                            string[] data = { arguments[1], arguments[4] };
-                            return this.TextLayoutTwoColumns(data, textSurface);
-                        }
+                        IMyShipConnector connector = GridTerminalSystem.GetBlockWithName(arguments[0]) as IMyShipConnector;
+                        bool connected = connector.Status == MyShipConnectorStatus.Connected;
+                        string[] data = { arguments[1], (connected ? arguments[2] : arguments[3]) };
+                        return this.TextLayoutTwoColumns(data, textSurface);
                     }
-                    else
+                    catch(Exception e)
                     {
-                        return "Connected: Expected arguments: \"<block>\" \"<text>\" \"<true text>\" \"<false text>\" \"<error text>\"";
+                        string[] data = { arguments[1], arguments[4] };
+                        return this.TextLayoutTwoColumns(data, textSurface);
+                    }
+                case "Extending":
+                    if (arguments.Length != 5) return "Extending: Expected args: \"<block>\" \"<text>\" \"<true text>\" \"<false text>\" \"<error text>\"";
+                    try
+                    {
+                        IMyPistonBase piston = GridTerminalSystem.GetBlockWithName(arguments[0]) as IMyPistonBase;
+                        bool extending = piston.Status == PistonStatus.Extending;
+                        string[] data = { arguments[1], (extending ? arguments[2] : arguments[3]) };
+                        return this.TextLayoutTwoColumns(data, textSurface);
+                    }
+                    catch(Exception e)
+                    {
+                        string[] data = { arguments[1], arguments[4] };
+                        return this.TextLayoutTwoColumns(data, textSurface);
+                    }
+                case "Retracting":
+                    if (arguments.Length != 5) return "Retracting: Expected args: \"<block>\" \"<text>\" \"<true text>\" \"<false text>\" \"<error text>\"";
+                    try
+                    {
+                        IMyPistonBase piston = GridTerminalSystem.GetBlockWithName(arguments[0]) as IMyPistonBase;
+                        bool retracting = piston.Status == PistonStatus.Retracting;
+                        string[] data = { arguments[1], (retracting ? arguments[2] : arguments[3]) };
+                        return this.TextLayoutTwoColumns(data, textSurface);
+                    }
+                    catch (Exception e)
+                    {
+                        string[] data = { arguments[1], arguments[4] };
+                        return this.TextLayoutTwoColumns(data, textSurface);
+                    }
+                case "PistonStatus":
+                    if (arguments.Length != 6) return "PistonStatus: Expected args: \"<block>\" \"<text>\" \"<stopped text>\" \"<retracting text>\" \"<extending text>\" \"<error text>\"";
+                    try
+                    {
+                        IMyPistonBase piston = GridTerminalSystem.GetBlockWithName(arguments[0]) as IMyPistonBase;
+                        string statusText = arguments[2];
+                        switch(piston.Status)
+                        {
+                            case PistonStatus.Retracting: statusText = arguments[3]; break;
+                            case PistonStatus.Extending: statusText = arguments[4]; break;
+                            default: statusText = arguments[2]; break;
+                        }
+                        string[] data = { arguments[1], statusText };
+                        return this.TextLayoutTwoColumns(data, textSurface);
+
+                    }catch(Exception e)
+                    {
+                        string[] data = { arguments[1], arguments[5] };
+                        return this.TextLayoutTwoColumns(data, textSurface);
                     }
             }
             return "";
@@ -213,6 +270,7 @@ namespace IngameScript
                     basePanelWidth = 106;
                     break;
             }
+           // Echo($"{textSurface.terminal.BlockDefinition.SubtypeId}");
             int basePanelPadding = (int)(basePanelWidth * (textSurface.surface.TextPadding / 100f) * 2);
             return (int)((basePanelWidth - basePanelPadding) / textSurface.surface.FontSize);
         }
@@ -222,13 +280,22 @@ namespace IngameScript
             if (data.Length < 2) throw new Exception("TextLayoutTwoColumns requires an array with a length of at least 2");
             int width = this.ScreenWidth(textSurface);
             int halfWidth = (int)(width / 2);
-
-            Echo($"{textSurface.terminal.BlockDefinition.SubtypeId}: {width}");
             int leftWidth = Math.Min(halfWidth - 1, data[0].Length);
             int rightWidth = Math.Min(halfWidth - 1, data[1].Length);
             string output = data[0].Substring(0, leftWidth);
             output += GenerateString(' ', Math.Max(width - leftWidth - rightWidth, 1));
             output += data[1].Substring(0, rightWidth);
+            return output;
+        }
+
+        string TextLayoutCenter(string text, TextSurfacePair textSurface)
+        {
+            int width = this.ScreenWidth(textSurface);
+            int halfWidth = (int)(width / 2);
+            int left = halfWidth - (text.Length / 2);
+
+            string output = GenerateString(' ', left);
+            output += text;
             return output;
         }
 
