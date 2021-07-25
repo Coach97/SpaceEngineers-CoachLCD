@@ -99,7 +99,7 @@ namespace IngameScript
             textSurfaces.ForEach(textSurface =>
             {
                 string data = textSurface.terminal.CustomData;
-                List<CommandArgumentsPair> parsedData = this.ParseData(data);
+                List<CommandArgumentsPair> parsedData = this.ParseData(data, textSurface.terminal);
                 string output = ExecuteCommands(parsedData, textSurface);
                 
                 textSurface.surface.WriteText(output);
@@ -109,21 +109,44 @@ namespace IngameScript
         string ExecuteCommands(List<CommandArgumentsPair>  commandArgsPairs, TextSurfacePair textSurface)
         {
             string output = "";
-            foreach(CommandArgumentsPair commandArgPair in commandArgsPairs)
+            Dictionary<string, string> blockScriptData = new Dictionary<string, string>();
+            foreach (CommandArgumentsPair commandArgPair in commandArgsPairs)
             {
-                string commandOutput = ExecuteCommand(commandArgPair.command, commandArgPair.arguments, textSurface);
+                string commandOutput = ExecuteCommand(commandArgPair.command, commandArgPair.arguments, textSurface, blockScriptData);
                 if (commandOutput.Length > 0) output += commandOutput + "\n";
             }
             return output;
         }
 
-        string ExecuteCommand(string command, string[] arguments, TextSurfacePair textSurface)
+        string ExecuteCommand(string command, string[] preArguments, TextSurfacePair textSurface, Dictionary<string, string> data)
         {
+            List<string> argList = new List<string>();
+            foreach(string arg in preArguments)
+            {
+                string argWithData = arg;
+                foreach(KeyValuePair<string, string> kv in data)
+                {
+                    Echo($"{kv.Key}, {argWithData}, {argWithData.Replace("${" + kv.Key + "}", kv.Value)}");
+                    argWithData = argWithData.Replace("${" + kv.Key + "}", kv.Value);
+                }
+                argList.Add(argWithData);
+            }
+            string[] arguments = argList.ToArray();
             string firstArg = arguments.Length > 0 ? arguments[0] : "";
             int screenWidth = this.ScreenWidth(textSurface);
             switch (command)
             {
                 // Settings
+                case "Data":
+                    if (arguments.Length != 2) return "Data: Expected args: \"<key>\" \"<value>\"";
+                    try
+                    {
+                        data.Add(arguments[0], arguments[1]);
+                        return "";
+                    }catch(Exception e)
+                    {
+                        return "Data: " + e.Message;
+                    }
                 case "Color":
                     if (arguments.Length != 3) return "Color: Expected args: \"<red>\" \"<green>\" \"<blue>\"";
                     try
@@ -131,7 +154,7 @@ namespace IngameScript
                         textSurface.surface.FontColor = new Color(int.Parse(arguments[0]), int.Parse(arguments[1]), int.Parse(arguments[2]));
                     }catch(Exception e)
                     {
-                        return "Error: Unable to parse arguments. Make sure they are integers";
+                        return "Color: Unable to parse arguments. Make sure they are integers";
                     }
                     return "";
                 case "FontSize":
@@ -141,7 +164,7 @@ namespace IngameScript
                         textSurface.surface.FontSize = float.Parse(firstArg);
                     }catch(Exception e)
                     {
-                        return "Error: Unable to parse argument. Make sure it is a number";
+                        return "FontSize: Unable to parse argument. Make sure it is a number";
                     }
                     return "";
 
@@ -149,7 +172,7 @@ namespace IngameScript
                 case "HLine":
                     return this.GenerateString('─', screenWidth);
                 case "Echo":
-                    return firstArg;
+                    return firstArg == "" ? " " : firstArg;
                 case "Center":
                     return this.TextLayoutCenter(firstArg, textSurface);
                 case "TwoCol":
@@ -169,6 +192,7 @@ namespace IngameScript
                         try
                         {
                             IMyTerminalBlock block = GridTerminalSystem.GetBlockWithName(arguments[0]);
+                            if (block.BlockDefinition.IsNull()) throw new Exception("Block not found");
                             bool value = block.GetValueBool(arguments[1]);
                             return this.TextLayoutTwoColumns(arguments[2], (value ? arguments[3] : arguments[4]), textSurface);
                         }
@@ -291,15 +315,19 @@ namespace IngameScript
         string PrintCargoContents(IMyInventory inventory, TextSurfacePair textSurface, bool wide = false)
         {
             List<MyInventoryItem> items = this.GetCargoContents(inventory);
+            items.OrderBy(item => item.Type.SubtypeId.ToString());
             string output = "";
             List<string> group = new List<string>();
             foreach (MyInventoryItem item in items)
             {
                 string unit = item.Type.TypeId.ToLower().Contains("ore") ? "g" : "";
                 string amount = this.ShorthandAmount(item.Amount.ToString(), unit);
+                string typeName = item.Type.TypeId.Replace("MyObjectBuilder_", "");
+                if (typeName == "Component" || item.Type.SubtypeId == "Ice") typeName = "";
+                string name = item.Type.SubtypeId + " " + typeName;
                 if (wide)
                 {
-                    group.Add(item.Type.SubtypeId);
+                    group.Add(name);
                     group.Add(amount);
                     if (group.Count == 4)
                     {
@@ -308,7 +336,7 @@ namespace IngameScript
                     }
                 }else
                 {
-                    output += this.TextLayoutTwoColumns(item.Type.SubtypeId, amount, textSurface) + "\n";
+                    output += this.TextLayoutTwoColumns(name, amount, textSurface) + "\n";
                 }
                 
             }
@@ -418,32 +446,39 @@ namespace IngameScript
             return output;
         }
 
-        List<CommandArgumentsPair> ParseData(string data)
+        List<CommandArgumentsPair> ParseData(string data, IMyTerminalBlock block)
         {
             List<CommandArgumentsPair> output = new List<CommandArgumentsPair>();
             string[] lines = data.Split('\n');
             foreach(string line in lines)
             {
-                if (line.Length == 0) continue;
-                string[] commandAndArguments = line.Split(' ');
-                if (commandAndArguments.Length == 0 || commandAndArguments[0].Length == 0) continue;
-                string command = commandAndArguments[0];
-                bool first = true;
-                string[] arguments = commandAndArguments.Aggregate(new List<string>(), (acc, value) =>
+                try
                 {
-                    if (first)
+                    if (line.Length == 0) continue;
+                    string[] commandAndArguments = line.Split(' ');
+                    if (commandAndArguments.Length == 0 || commandAndArguments[0].Length == 0) continue;
+                    string command = commandAndArguments[0];
+                    bool first = true;
+                    string[] arguments = commandAndArguments.Aggregate(new List<string>(), (acc, value) =>
                     {
-                        first = false;
+                        if (first)
+                        {
+                            first = false;
+                            return acc;
+                        }
+                        if (value.StartsWith("\"") && value.EndsWith("\"")) acc.Add(value.Substring(1, Math.Max(value.Length - 2, 0)));
+                        else if (value.StartsWith("\"")) acc.Add(value.Substring(Math.Min(value.Length, 1)));
+                        else if (value.EndsWith("\"")) acc[acc.Count - 1] += " " + value.Substring(0, Math.Max(value.Length - 1, 0));
+                        else acc[acc.Count - 1] += " " + value;
                         return acc;
-                    }
-                    if (value.StartsWith("\"") && value.EndsWith("\"")) acc.Add(value.Substring(1, value.Length - 2));
-                    else if (value.StartsWith("\"")) acc.Add(value.Substring(1));
-                    else if (value.EndsWith("\"")) acc[acc.Count - 1] += " " + value.Substring(0, value.Length - 1);
-                    else acc[acc.Count - 1] += " " + value;
-                    return acc;
-                }).ToArray();
-                CommandArgumentsPair cmdArgPair = new CommandArgumentsPair(command, arguments);
-                output.Add(cmdArgPair);
+                    }).ToArray();
+                    CommandArgumentsPair cmdArgPair = new CommandArgumentsPair(command, arguments);
+                    output.Add(cmdArgPair);
+                }
+                catch(Exception e)
+                {
+                    Echo($"Error parsing custom data for block {block.CustomName}: " + e.Message);
+                }
             }
             return output;
         }
