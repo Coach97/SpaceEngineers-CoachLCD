@@ -154,7 +154,9 @@ namespace IngameScript
                     return this.TextLayoutCenter(firstArg, textSurface);
                 case "TwoCol":
                     if (arguments.Length != 2) return "TwoCol: Expected args: \"<left>\" \"<right>\"";
-                    return this.TextLayoutTwoColumns(arguments, textSurface);
+                    return this.TextLayoutTwoColumns(arguments[0], arguments[1], textSurface);
+                case "Col":
+                    return this.TextLayoutEvenColumns(arguments, textSurface);
 
                 // Property displays
                 case "PropBool":
@@ -168,13 +170,11 @@ namespace IngameScript
                         {
                             IMyTerminalBlock block = GridTerminalSystem.GetBlockWithName(arguments[0]);
                             bool value = block.GetValueBool(arguments[1]);
-                            string[] data = { arguments[2], (value ? arguments[3] : arguments[4]) };
-                            return this.TextLayoutTwoColumns(data, textSurface);
+                            return this.TextLayoutTwoColumns(arguments[2], (value ? arguments[3] : arguments[4]), textSurface);
                         }
                         catch (Exception e)
                         {
-                            string[] data = { arguments[2], arguments[3] };
-                            return this.TextLayoutTwoColumns(data, textSurface);
+                            return this.TextLayoutTwoColumns(arguments[2], arguments[3], textSurface);
                         }
 
                     }
@@ -184,13 +184,11 @@ namespace IngameScript
                     {
                         IMyShipConnector connector = GridTerminalSystem.GetBlockWithName(arguments[0]) as IMyShipConnector;
                         bool connected = connector.Status == MyShipConnectorStatus.Connected;
-                        string[] data = { arguments[1], (connected ? arguments[2] : arguments[3]) };
-                        return this.TextLayoutTwoColumns(data, textSurface);
+                        return this.TextLayoutTwoColumns(arguments[1], (connected ? arguments[2] : arguments[3]), textSurface);
                     }
                     catch(Exception e)
                     {
-                        string[] data = { arguments[1], arguments[4] };
-                        return this.TextLayoutTwoColumns(data, textSurface);
+                        return this.TextLayoutTwoColumns(arguments[1], arguments[4], textSurface);
                     }
                 case "Extending":
                     if (arguments.Length != 5) return "Extending: Expected args: \"<block>\" \"<text>\" \"<true text>\" \"<false text>\" \"<error text>\"";
@@ -198,13 +196,11 @@ namespace IngameScript
                     {
                         IMyPistonBase piston = GridTerminalSystem.GetBlockWithName(arguments[0]) as IMyPistonBase;
                         bool extending = piston.Status == PistonStatus.Extending;
-                        string[] data = { arguments[1], (extending ? arguments[2] : arguments[3]) };
-                        return this.TextLayoutTwoColumns(data, textSurface);
+                        return this.TextLayoutTwoColumns(arguments[1], (extending ? arguments[2] : arguments[3]), textSurface);
                     }
                     catch(Exception e)
                     {
-                        string[] data = { arguments[1], arguments[4] };
-                        return this.TextLayoutTwoColumns(data, textSurface);
+                        return this.TextLayoutTwoColumns(arguments[1], arguments[4], textSurface);
                     }
                 case "Retracting":
                     if (arguments.Length != 5) return "Retracting: Expected args: \"<block>\" \"<text>\" \"<true text>\" \"<false text>\" \"<error text>\"";
@@ -212,13 +208,11 @@ namespace IngameScript
                     {
                         IMyPistonBase piston = GridTerminalSystem.GetBlockWithName(arguments[0]) as IMyPistonBase;
                         bool retracting = piston.Status == PistonStatus.Retracting;
-                        string[] data = { arguments[1], (retracting ? arguments[2] : arguments[3]) };
-                        return this.TextLayoutTwoColumns(data, textSurface);
+                        return this.TextLayoutTwoColumns(arguments[1], (retracting ? arguments[2] : arguments[3]), textSurface);
                     }
                     catch (Exception e)
                     {
-                        string[] data = { arguments[1], arguments[4] };
-                        return this.TextLayoutTwoColumns(data, textSurface);
+                        return this.TextLayoutTwoColumns(arguments[1], arguments[4], textSurface);
                     }
                 case "PistonStatus":
                     if (arguments.Length != 6) return "PistonStatus: Expected args: \"<block>\" \"<text>\" \"<stopped text>\" \"<retracting text>\" \"<extending text>\" \"<error text>\"";
@@ -232,16 +226,106 @@ namespace IngameScript
                             case PistonStatus.Extending: statusText = arguments[4]; break;
                             default: statusText = arguments[2]; break;
                         }
-                        string[] data = { arguments[1], statusText };
-                        return this.TextLayoutTwoColumns(data, textSurface);
+                        return this.TextLayoutTwoColumns(arguments[1], statusText, textSurface);
 
                     }catch(Exception e)
                     {
-                        string[] data = { arguments[1], arguments[5] };
-                        return this.TextLayoutTwoColumns(data, textSurface);
+                        return this.TextLayoutTwoColumns(arguments[1], arguments[5], textSurface);
+                    }
+                case "Cargo":
+                    if (arguments.Length != 1) return "Cargo: Expected args: \"block\"";
+                    try
+                    {
+                        IMyCargoContainer container = GridTerminalSystem.GetBlockWithName(arguments[0]) as IMyCargoContainer;
+                        return this.PrintCargoContents(container.GetInventory(), textSurface);
+                    }
+                    catch(Exception e)
+                    {
+                        return "Cargo: " + e.Message;
+                    }
+                case "ConnectedCargo":
+                    if (arguments.Length > 2 || arguments.Length < 1) return "Cargo: Expected args: \"<connector block>\" \"<?wide display>\"";
+                    try
+                    {
+                        IMyShipConnector connector = GridTerminalSystem.GetBlockWithName(arguments[0]) as IMyShipConnector;
+                        if (connector.Status != MyShipConnectorStatus.Connected) return "ConnectedCargo: Not Connected";
+                        long gridId = connector.OtherConnector.CubeGrid.EntityId;
+                        bool wide = arguments[1] == "true";
+                        // Find blocks with inventorys which are in the other ship's grid
+                        List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
+                        GridTerminalSystem.SearchBlocksOfName("", blocks, (block) =>
+                        {
+                            return block.HasInventory && block.CubeGrid.EntityId == gridId;
+                        });
+                        string output = "";
+                        foreach(IMyTerminalBlock block in blocks)
+                        {
+                            output += this.PrintCargoContents(block.GetInventory(), textSurface, wide);
+                        }
+                        return output;
+
+                    }
+                    catch (Exception e)
+                    {
+                        return "ConnectedCargo: " + e.Message;
                     }
             }
             return "";
+        }
+
+        string ShorthandAmount(string amount, string unit = "")
+        {
+            int segmentLength = (int)Math.Floor(Math.Max(amount.Length - 1, 0) / 3f);
+            string symbol = "";
+            if (segmentLength == 1) symbol = "K";
+            if (segmentLength == 2) symbol = "M";
+            if (segmentLength == 3) symbol = "B";
+            if (segmentLength == 4) symbol = "T";
+            float floatAmt = float.Parse(amount);
+            int len = segmentLength > 0 ? (int)Math.Pow(1000, segmentLength) : 1;
+            string final = (floatAmt / len).ToString("#.##");
+            return final + symbol + unit;
+            
+        }
+
+        string PrintCargoContents(IMyInventory inventory, TextSurfacePair textSurface, bool wide = false)
+        {
+            List<MyInventoryItem> items = this.GetCargoContents(inventory);
+            string output = "";
+            List<string> group = new List<string>();
+            foreach (MyInventoryItem item in items)
+            {
+                string unit = item.Type.TypeId.ToLower().Contains("ore") ? "g" : "";
+                string amount = this.ShorthandAmount(item.Amount.ToString(), unit);
+                if (wide)
+                {
+                    group.Add(item.Type.SubtypeId);
+                    group.Add(amount);
+                    if (group.Count == 4)
+                    {
+                        output += this.TextLayoutEvenColumns(group.ToArray(), textSurface) + "\n";
+                        group.Clear();
+                    }
+                }else
+                {
+                    output += this.TextLayoutTwoColumns(item.Type.SubtypeId, amount, textSurface) + "\n";
+                }
+                
+            }
+            if (group.Count == 2)
+            {
+                group.Add("");
+                group.Add("");
+                output += this.TextLayoutEvenColumns(group.ToArray(), textSurface) + "\n";
+            }
+            return output;
+        }
+
+        List<MyInventoryItem> GetCargoContents(IMyInventory inventory)
+        {
+            List<MyInventoryItem> items = new List<MyInventoryItem>();
+            inventory.GetItems(items);
+            return items;
         }
 
         string JoinString(string[] stringarray, string join)
@@ -275,16 +359,51 @@ namespace IngameScript
             return (int)((basePanelWidth - basePanelPadding) / textSurface.surface.FontSize);
         }
 
-        string TextLayoutTwoColumns(string[] data, TextSurfacePair textSurface)
+        string TextLayoutTwoColumns(string left, string right, TextSurfacePair textSurface)
+        {
+            int width = this.ScreenWidth(textSurface);
+            int halfWidth = (int)(width / 2f);
+            int remainder = width - (halfWidth * 2);
+
+            int leftWidth = Math.Min(halfWidth - 1, left.Length);
+            int rightWidth = Math.Min(halfWidth - 1, right.Length);
+
+            string output = left.Substring(0, Math.Min(halfWidth, leftWidth));
+            output += GenerateString(' ', Math.Max(width - leftWidth - rightWidth, 2));
+            output += right.Substring(0, Math.Min(halfWidth, rightWidth));
+            return output;
+        }
+
+        string TextLayoutEvenColumns(string[] data, TextSurfacePair textSurface)
         {
             if (data.Length < 2) throw new Exception("TextLayoutTwoColumns requires an array with a length of at least 2");
             int width = this.ScreenWidth(textSurface);
-            int halfWidth = (int)(width / 2);
-            int leftWidth = Math.Min(halfWidth - 1, data[0].Length);
-            int rightWidth = Math.Min(halfWidth - 1, data[1].Length);
-            string output = data[0].Substring(0, leftWidth);
-            output += GenerateString(' ', Math.Max(width - leftWidth - rightWidth, 1));
-            output += data[1].Substring(0, rightWidth);
+            int colWidth = (int)(width / data.Length);
+            int remainder = width - (colWidth * data.Length);
+            int firstColGap = colWidth / 2;
+
+            string output = "";
+            bool isEven = data.Length % 2 == 0;
+            for (int i = 0; i < data.Length; i++)
+            {
+                
+                if (isEven)
+                {
+                    int currentColTextWidth = Math.Min(colWidth - 1, data[i].Length);
+                    if (i % 2 == 0) output += data[i].Substring(0, currentColTextWidth) + GenerateString(' ', Math.Max(colWidth - currentColTextWidth, 1));
+                    else
+                    {
+                        if (i == data.Length - 1) output += GenerateString(' ', Math.Max(remainder - 1, 0));
+                        output += GenerateString(' ', Math.Max(colWidth - currentColTextWidth, 1)) + data[i].Substring(0, currentColTextWidth);
+                        if (i != data.Length - 1) output += " ";
+                    }
+                }else {
+                    int currentColTextWidth = Math.Min(colWidth - 1, data[i].Length);
+                    if (i == data.Length - 1) output += GenerateString(' ', Math.Max(colWidth - currentColTextWidth, 1) + remainder);
+                    output += data[i].Substring(0, currentColTextWidth);
+                    if (i < data.Length - 1) output += GenerateString(' ', Math.Max(colWidth - currentColTextWidth, 1));
+                }
+            }
             return output;
         }
 
